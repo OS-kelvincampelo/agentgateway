@@ -72,6 +72,14 @@ func BuildAgwBackendReferences(
 					AI:            nil,
 				}, app)
 			}
+			if r.OpenAPI != nil && r.OpenAPI.Policies != nil {
+				p := r.OpenAPI.Policies
+				plugins.BackendReferencesFromBackendPolicy(&agentgateway.BackendFull{
+					BackendSimple: p.BackendSimple,
+					MCP:           p.MCP,
+					AI:            nil,
+				}, app)
+			}
 		}
 	}
 	return attachments
@@ -224,6 +232,45 @@ func translateMCPBackends(ctx plugins.PolicyCtx, be *agentgateway.AgentgatewayBa
 			case agentgateway.MCPProtocolStreamableHTTP:
 				mcpTarget.Protocol = api.MCPTarget_STREAMABLE_HTTP
 			}
+
+			mcpTargets = append(mcpTargets, mcpTarget)
+		} else if o := target.OpenAPI; o != nil {
+			staticBackendRef := utils.InternalMCPStaticBackendName(be.Namespace, be.Name, string(target.Name))
+			pol, err := translateMCPBackendPolicies(ctx, be.Namespace, o.Policies)
+			if err != nil {
+				logger.Error("failed to translate OpenAPI backend policies", "err", err)
+				errs = append(errs, err)
+			}
+			staticBackend := &api.Backend{
+				Key:  staticBackendRef,
+				Name: plugins.ResourceName(be),
+				Kind: &api.Backend_Static{
+					Static: &api.StaticBackend{
+						Host: o.Host,
+						Port: o.Port,
+					},
+				},
+				InlinePolicies: pol,
+			}
+			backends = append(backends, staticBackend)
+
+			mcpTarget := &api.MCPTarget{
+				Name: string(target.Name),
+				Backend: &api.BackendReference{
+					Kind: &api.BackendReference_Backend{
+						Backend: staticBackendRef,
+					},
+				},
+				Protocol: api.MCPTarget_OPENAPI,
+			}
+
+			schema := &api.OpenAPISchema{}
+			if o.Schema.URL != nil {
+				schema.Source = &api.OpenAPISchema_Url{Url: *o.Schema.URL}
+			} else if o.Schema.Inline != nil {
+				schema.Source = &api.OpenAPISchema_Inline{Inline: *o.Schema.Inline}
+			}
+			mcpTarget.OpenapiSchema = schema
 
 			mcpTargets = append(mcpTargets, mcpTarget)
 		} else if s := target.Selector; s != nil {

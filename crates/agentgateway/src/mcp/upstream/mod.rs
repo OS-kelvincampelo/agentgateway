@@ -349,11 +349,12 @@ impl UpstreamGroup {
 				upstream::Upstream::McpStdio(upstream::stdio::Process::new(proc))
 			},
 			McpTargetSpec::OpenAPI(open) => {
-				// Renamed for clarity
 				debug!("starting OpenAPI transport for target: {}", target.name);
 
-				let tools = openapi::parse_openapi_schema(&open.schema).map_err(mcp::Error::OpenAPI)?;
-				let prefix = openapi::get_server_prefix(&open.schema).map_err(mcp::Error::OpenAPI)?;
+				let schema = Self::resolve_openapi_schema(&open.schema, &self.client.inputs.upstream)?;
+
+				let tools = openapi::parse_openapi_schema(&schema).map_err(mcp::Error::OpenAPI)?;
+				let prefix = openapi::get_server_prefix(&schema).map_err(mcp::Error::OpenAPI)?;
 
 				let http_client = McpHttpClient::new(
 					self.client.clone(),
@@ -367,12 +368,114 @@ impl UpstreamGroup {
 				);
 				upstream::Upstream::OpenAPI(Box::new(openapi::Handler::new(
 					http_client,
-					tools,  // From parse_openapi_schema
-					prefix, // From get_server_prefix
+					tools,
+					prefix,
 				)))
 			},
 		};
 
 		Ok(target)
+	}
+
+	/// Maximum size for fetched OpenAPI schemas (10 MiB).
+	/// This prevents OOM from oversized or malicious schema endpoints.
+	const MAX_OPENAPI_SCHEMA_SIZE: usize = 10 * 1024 * 1024;
+
+	/// Resolves an OpenAPI schema source into a parsed OpenAPI specification.
+	/// For `Resolved` schemas, returns the already-parsed spec directly.
+	/// For `Url` schemas, fetches the spec from the URL using the HTTP client
+	///   with a size limit and HTTP status validation.
+	/// For `Inline` schemas, parses the content string directly.
+	///
+	/// Schema parsing uses `yamlviajson` for consistency with the local config
+	/// path, and `stacker::grow` to guard against deep nesting stack overflows.
+	fn resolve_openapi_schema(
+		schema: &crate::types::agent::OpenAPISchemaSource,
+		client: &crate::client::Client,
+	) -> Result<std::sync::Arc<openapiv3::OpenAPI>, mcp::Error> {
+		use crate::types::agent::OpenAPISchemaSource;
+		match schema {
+			OpenAPISchemaSource::Resolved(s) => Ok(s.clone()),
+			OpenAPISchemaSource::Inline(content) => Self::parse_openapi_content(content),
+			OpenAPISchemaSource::Url(url) => {
+				// Fetch the OpenAPI schema from the URL. We use block_in_place because
+				// setup_upstream is synchronous but runs within a multi-threaded Tokio runtime.
+				// Schema resolution is deliberately done in the data plane (not the controller)
+				// to keep the controller stateless per krt requirements.
+				let url = url.clone();
+				let client = client.clone();
+				let schema = tokio::task::block_in_place(|| {
+					tokio::runtime::Handle::current().block_on(async {
+						let resp = client
+							.simple_call(
+								::http::Request::builder()
+									.uri(&url)
+									.body(crate::http::Body::empty())
+									.expect("builder should succeed"),
+							)
+							.await
+							.map_err(|e| {
+								mcp::Error::OpenAPI(openapi::ParseError::IoError(
+									std::io::Error::other(format!(
+										"failed to fetch OpenAPI schema from {url}: {e}"
+									)),
+								))
+							})?;
+
+						// Reject non-2xx HTTP responses explicitly
+						if !resp.status().is_success() {
+							return Err(mcp::Error::OpenAPI(openapi::ParseError::IoError(
+								std::io::Error::other(format!(
+									"OpenAPI schema URL {url} returned HTTP {}",
+									resp.status()
+								)),
+							)));
+						}
+
+						// Read body with explicit size limit to prevent OOM from
+						// oversized or malicious schema endpoints.
+						let body_bytes = crate::http::read_body_with_limit(
+							resp.into_body(),
+							Self::MAX_OPENAPI_SCHEMA_SIZE,
+						)
+						.await
+						.map_err(|e| {
+							mcp::Error::OpenAPI(openapi::ParseError::IoError(
+								std::io::Error::other(format!(
+									"failed to read OpenAPI schema body (limit: {} bytes): {e}",
+									Self::MAX_OPENAPI_SCHEMA_SIZE
+								)),
+							))
+						})?;
+						let content = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+							mcp::Error::OpenAPI(openapi::ParseError::IoError(
+								std::io::Error::other(format!(
+									"OpenAPI schema is not valid UTF-8: {e}"
+								)),
+							))
+						})?;
+						Self::parse_openapi_content(&content)
+					})
+				})?;
+				Ok(schema)
+			},
+		}
+	}
+
+	/// Parse an OpenAPI schema string (JSON or YAML) into a validated spec.
+	/// Uses `yamlviajson` for consistency with the local config path, and
+	/// `stacker::grow` to guard against deep nesting stack overflows.
+	fn parse_openapi_content(
+		content: &str,
+	) -> Result<std::sync::Arc<openapiv3::OpenAPI>, mcp::Error> {
+		let schema = stacker::grow(2 * 1024 * 1024, || {
+			crate::serdes::yamlviajson::from_str::<openapiv3::OpenAPI>(content)
+		})
+		.map_err(|e| {
+			mcp::Error::OpenAPI(openapi::ParseError::IoError(std::io::Error::other(
+				format!("failed to parse OpenAPI schema: {e}"),
+			)))
+		})?;
+		Ok(std::sync::Arc::new(schema))
 	}
 }

@@ -1,0 +1,19 @@
+- key: test-ns/openapi-url-backend/petstore
+  name:
+    name: openapi-url-backend
+    namespace: test-ns
+  static:
+    host: api.petstore.io
+    port: 443
+- key: test-ns/openapi-url-backend
+  mcp:
+    targets:
+    - backend:
+        backend: test-ns/openapi-url-backend/petstore
+      name: petstore
+      openapiSchema:
+        url: https://api.petstore.io/v1/openapi.json
+      protocol: OPENAPI
+  name:
+    name: openapi-url-backend
+    namespace: test-ns

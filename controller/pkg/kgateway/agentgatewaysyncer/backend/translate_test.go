@@ -161,6 +161,56 @@ func TestBuildMCP(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "OpenAPI target with schema URL",
+			backend: &agentgateway.AgentgatewayBackend{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "openapi-url-backend",
+					Namespace: "test-ns",
+				},
+				Spec: agentgateway.AgentgatewayBackendSpec{
+					MCP: &agentgateway.MCPBackend{
+						Targets: []agentgateway.McpTargetSelector{
+							{
+								Name: "petstore",
+								OpenAPI: &agentgateway.OpenAPITarget{
+									Host: "api.petstore.io",
+									Port: 443,
+									Schema: agentgateway.OpenAPISchema{
+										URL: stringPtr("https://api.petstore.io/v1/openapi.json"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "OpenAPI target with inline schema",
+			backend: &agentgateway.AgentgatewayBackend{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "openapi-inline-backend",
+					Namespace: "test-ns",
+				},
+				Spec: agentgateway.AgentgatewayBackendSpec{
+					MCP: &agentgateway.MCPBackend{
+						Targets: []agentgateway.McpTargetSelector{
+							{
+								Name: "inline-api",
+								OpenAPI: &agentgateway.OpenAPITarget{
+									Host: "api.example.com",
+									Port: 8080,
+									Schema: agentgateway.OpenAPISchema{
+										Inline: stringPtr(`{"openapi":"3.0.0","info":{"title":"Test","version":"1.0"},"paths":{}}`),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

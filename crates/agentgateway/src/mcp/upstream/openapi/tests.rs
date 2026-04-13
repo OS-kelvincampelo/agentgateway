@@ -1098,7 +1098,10 @@ async fn test_openapi_from_url() {
 
 		// Verify it's an OpenAPI target spec with the fetched schema
 		if let crate::types::agent::McpTargetSpec::OpenAPI(openapi_target) = &target.spec {
-			let schema = &openapi_target.schema;
+			let schema = match &openapi_target.schema {
+				crate::types::agent::OpenAPISchemaSource::Resolved(s) => s,
+				other => panic!("Expected Resolved schema, got {:?}", other),
+			};
 			assert_eq!(schema.openapi, "3.0.0");
 			assert_eq!(schema.info.title, "User API");
 			assert_eq!(schema.info.version, "1.0.0");

@@ -1225,11 +1225,24 @@ message MCPTarget {
     UNDEFINED = 0;
     SSE = 1;
     STREAMABLE_HTTP = 2;
+    OPENAPI = 3;
   }
   string name = 1;
   BackendReference backend = 2;
   string path = 3;
   Protocol protocol = 4;
+  // OpenAPI schema for OPENAPI protocol targets. Only used when protocol = OPENAPI.
+  OpenAPISchema openapi_schema = 5;
+}
+
+// OpenAPISchema specifies the source of an OpenAPI specification.
+message OpenAPISchema {
+  oneof source {
+    // URL to fetch the OpenAPI specification from.
+    string url = 1;
+    // Inline OpenAPI specification content (JSON or YAML).
+    string inline = 2;
+  }
 }
 
 message BackendReference {

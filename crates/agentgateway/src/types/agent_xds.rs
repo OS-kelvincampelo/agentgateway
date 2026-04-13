@@ -889,6 +889,27 @@ impl TryFrom<&proto::agent::McpTarget> for McpTarget {
 						},
 					})
 				},
+				Protocol::Openapi => {
+					let schema_source =
+						match s.openapi_schema.as_ref().and_then(|s| s.source.as_ref()) {
+							Some(proto::agent::open_api_schema::Source::Url(url)) => {
+								OpenAPISchemaSource::Url(url.clone())
+							},
+							Some(proto::agent::open_api_schema::Source::Inline(content)) => {
+								OpenAPISchemaSource::Inline(content.clone())
+							},
+							None => {
+								return Err(ProtoError::Generic(
+									"OpenAPI target requires openapi_schema with url or inline content"
+										.to_string(),
+								));
+							},
+						};
+					McpTargetSpec::OpenAPI(OpenAPITarget {
+						backend,
+						schema: schema_source,
+					})
+				},
 			},
 		})
 	}
@@ -2406,5 +2427,116 @@ mod tests {
 		assert!(path.starts_with("/runtimes/"));
 		assert!(path.contains("qualifier=v1"));
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod openapi_tests {
+	use crate::types::agent::{McpTargetSpec, OpenAPISchemaSource};
+	use crate::types::proto;
+
+	use super::McpTarget;
+
+	#[test]
+	fn test_mcp_target_openapi_with_url() {
+		let proto_target = proto::agent::McpTarget {
+			name: "petstore".to_string(),
+			backend: Some(proto::agent::BackendReference {
+				kind: Some(proto::agent::backend_reference::Kind::Backend(
+					"ns/my-backend".to_string(),
+				)),
+				port: 0,
+			}),
+			path: String::new(),
+			protocol: proto::agent::mcp_target::Protocol::Openapi as i32,
+			openapi_schema: Some(proto::agent::OpenApiSchema {
+				source: Some(proto::agent::open_api_schema::Source::Url(
+					"https://petstore.swagger.io/v2/swagger.json".to_string(),
+				)),
+			}),
+		};
+
+		let result = McpTarget::try_from(&proto_target);
+		assert!(result.is_ok(), "Should convert OpenAPI target with URL");
+
+		let target = result.unwrap();
+		assert_eq!(target.name.as_str(), "petstore");
+
+		match &target.spec {
+			McpTargetSpec::OpenAPI(openapi) => {
+				match &openapi.schema {
+					OpenAPISchemaSource::Url(url) => {
+						assert_eq!(url, "https://petstore.swagger.io/v2/swagger.json");
+					},
+					other => panic!("Expected Url schema source, got {:?}", other),
+				}
+			},
+			other => panic!("Expected OpenAPI target spec, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn test_mcp_target_openapi_with_inline() {
+		let inline_schema = r#"{"openapi":"3.0.0","info":{"title":"Test","version":"1.0"},"paths":{}}"#;
+
+		let proto_target = proto::agent::McpTarget {
+			name: "inline-api".to_string(),
+			backend: Some(proto::agent::BackendReference {
+				kind: Some(proto::agent::backend_reference::Kind::Backend(
+					"ns/my-backend".to_string(),
+				)),
+				port: 0,
+			}),
+			path: String::new(),
+			protocol: proto::agent::mcp_target::Protocol::Openapi as i32,
+			openapi_schema: Some(proto::agent::OpenApiSchema {
+				source: Some(proto::agent::open_api_schema::Source::Inline(
+					inline_schema.to_string(),
+				)),
+			}),
+		};
+
+		let result = McpTarget::try_from(&proto_target);
+		assert!(result.is_ok(), "Should convert OpenAPI target with inline schema");
+
+		let target = result.unwrap();
+		assert_eq!(target.name.as_str(), "inline-api");
+
+		match &target.spec {
+			McpTargetSpec::OpenAPI(openapi) => {
+				match &openapi.schema {
+					OpenAPISchemaSource::Inline(content) => {
+						assert!(content.contains("openapi"));
+						assert!(content.contains("3.0.0"));
+					},
+					other => panic!("Expected Inline schema source, got {:?}", other),
+				}
+			},
+			other => panic!("Expected OpenAPI target spec, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn test_mcp_target_openapi_missing_schema_fails() {
+		let proto_target = proto::agent::McpTarget {
+			name: "no-schema".to_string(),
+			backend: Some(proto::agent::BackendReference {
+				kind: Some(proto::agent::backend_reference::Kind::Backend(
+					"ns/my-backend".to_string(),
+				)),
+				port: 0,
+			}),
+			path: String::new(),
+			protocol: proto::agent::mcp_target::Protocol::Openapi as i32,
+			openapi_schema: None,
+		};
+
+		let result = McpTarget::try_from(&proto_target);
+		assert!(result.is_err(), "Should fail when openapi_schema is missing");
+		let err = result.unwrap_err().to_string();
+		assert!(
+			err.contains("openapi_schema"),
+			"Error should mention openapi_schema: {err}"
+		);
 	}
 }

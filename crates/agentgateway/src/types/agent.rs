@@ -1271,7 +1271,33 @@ pub struct OpenAPITarget {
 	pub backend: SimpleBackendReference,
 	#[serde(skip_serializing)]
 	#[cfg_attr(feature = "schema", schemars(with = "serde_json::value::RawValue"))]
-	pub schema: Arc<OpenAPI>,
+	pub schema: OpenAPISchemaSource,
+}
+
+/// The source of an OpenAPI specification. Schemas may be resolved (already parsed)
+/// or unresolved (a URL or inline string that needs loading at initialization time).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub enum OpenAPISchemaSource {
+	/// A fully parsed and resolved OpenAPI schema.
+	Resolved(Arc<OpenAPI>),
+	/// A URL to fetch the OpenAPI specification from.
+	Url(String),
+	/// Inline OpenAPI specification content (JSON or YAML).
+	Inline(String),
+}
+
+impl serde::Serialize for OpenAPISchemaSource {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match self {
+			OpenAPISchemaSource::Resolved(_) => serializer.serialize_str("<resolved>"),
+			OpenAPISchemaSource::Url(url) => serializer.serialize_str(&url.to_string()),
+			OpenAPISchemaSource::Inline(_) => serializer.serialize_str("<inline>"),
+		}
+	}
 }
 
 #[derive(Debug, Clone, Default)]

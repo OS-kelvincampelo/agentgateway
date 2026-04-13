@@ -355,7 +355,7 @@ const (
 type FailureMode string
 
 // McpTargetSelector defines the MCPBackend target to use for this backend.
-// +kubebuilder:validation:ExactlyOneOf=selector;static
+// +kubebuilder:validation:ExactlyOneOf=selector;static;openapi
 type McpTargetSelector struct {
 	// Name of the MCPBackend target.
 	// +required
@@ -370,6 +370,11 @@ type McpTargetSelector struct {
 	// 'selector' instead.
 	// +optional
 	Static *McpTarget `json:"static,omitempty"`
+
+	// openapi configures an OpenAPI backend target. The OpenAPI specification is fetched from the provided
+	// schema source and converted into MCP tools automatically.
+	// +optional
+	OpenAPI *OpenAPITarget `json:"openapi,omitempty"`
 }
 
 const (
@@ -420,6 +425,42 @@ type McpTarget struct {
 	// AgentgatewayBackend < AgentgatewayBackend MCP (this field).
 	// +optional
 	Policies *BackendWithMCP `json:"policies,omitempty"`
+}
+
+// OpenAPITarget defines an OpenAPI backend target configuration.
+type OpenAPITarget struct {
+	// Host is the hostname or IP address of the OpenAPI backend.
+	// +required
+	Host ShortString `json:"host"`
+
+	// Port is the port number of the OpenAPI backend.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +required
+	Port int32 `json:"port"`
+
+	// Schema specifies the source of the OpenAPI specification.
+	// +required
+	Schema OpenAPISchema `json:"schema"`
+
+	// policies controls policies for communicating with this backend. Policies may also be set in AgentgatewayPolicy, or
+	// in the top level AgentgatewayBackend. Policies are merged on a field-level basis, with order: AgentgatewayPolicy <
+	// AgentgatewayBackend < AgentgatewayBackend MCP (this field).
+	// +optional
+	Policies *BackendWithMCP `json:"policies,omitempty"`
+}
+
+// OpenAPISchema specifies the source of an OpenAPI specification.
+// +kubebuilder:validation:ExactlyOneOf=url;inline
+type OpenAPISchema struct {
+	// url is a remote URL pointing to the OpenAPI specification (JSON or YAML).
+	// The schema is fetched by the data plane at target initialization time.
+	// +optional
+	URL *LongString `json:"url,omitempty"`
+
+	// inline is the OpenAPI specification content provided directly (JSON or YAML).
+	// +optional
+	Inline *string `json:"inline,omitempty"`
 }
 
 // MCPProtocol defines the protocol to use for the MCPBackend target

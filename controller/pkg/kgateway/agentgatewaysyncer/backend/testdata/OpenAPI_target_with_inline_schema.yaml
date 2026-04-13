@@ -1,0 +1,19 @@
+- key: test-ns/openapi-inline-backend/inline-api
+  name:
+    name: openapi-inline-backend
+    namespace: test-ns
+  static:
+    host: api.example.com
+    port: 8080
+- key: test-ns/openapi-inline-backend
+  mcp:
+    targets:
+    - backend:
+        backend: test-ns/openapi-inline-backend/inline-api
+      name: inline-api
+      openapiSchema:
+        inline: '{"openapi":"3.0.0","info":{"title":"Test","version":"1.0"},"paths":{}}'
+      protocol: OPENAPI
+  name:
+    name: openapi-inline-backend
+    namespace: test-ns
